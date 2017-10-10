@@ -21,3 +21,6 @@ This is a project for Network Applications class at Brno University of Technolog
 
 6. POP3 RFC:
   * https://tools.ietf.org/html/rfc1939
+  
+7. POP3s RFC:
+  * https://tools.ietf.org/html/rfc2595
