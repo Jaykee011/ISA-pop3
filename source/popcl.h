@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <cerrno>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -12,14 +13,24 @@
 #include <netdb.h>
 
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <regex>
+#include <vector>
 
 #include <sys/stat.h>
 #include <dirent.h>
 
-#define BUFF_SIZE			8192 //velikost bufferu
+#define BUFF_SIZE			512//velikost bufferu
 
 #define ARGERR              1
 #define HOSTERR             2
 #define SOCKERR             3
+#define CONNECTERR          4
+#define AUTHERR             5
+#define FILEERR             6
+#define COMERR              7
+#define RESPERR             8
+#define RETRERR             9
 
 using namespace std;
