@@ -10,6 +10,7 @@
         "*.tcc": "cpp",
         "ratio": "cpp",
         "system_error": "cpp",
-        "chrono": "cpp"
+        "chrono": "cpp",
+        "ostream": "cpp"
     }
 }

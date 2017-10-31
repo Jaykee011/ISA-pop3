@@ -24,10 +24,15 @@ void errorHandle (int type){
             exit(COMERR);
         case RESPERR:
             cerr << "Error: RESPONSE_ERROR - SERVER RESPONSE ERROR";
-            exit(RESPERR);
+            //FIXME:
+            // exit(RESPERR);
+            exit(errno);
         case RETRERR:
             cerr << "Error: RETRIEVE_ERROR - MAIL RETRIEVE ERROR";
             exit(RETRERR);
+        case DIRERR:
+            cerr << "Error: DIRECTORY_ERROR - COULD NOT CREATE OUTPUT DIRECTORY";
+            exit(errno);            
         default:
             exit(-1);
             break;
@@ -54,31 +59,59 @@ int socketInit(int IPv){
     *   author: Robert S. Barnes, further edited by  jjxtra
     */
     #if defined(_WIN32) || defined(_WIN64)
-        DWORD timeout = 100;
+        DWORD timeout = 200;
         setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
     #else
         struct timeval tv;
         tv.tv_sec = 0;
-        tv.tv_usec = 100000;
+        tv.tv_usec = 200000;
         setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv,sizeof(struct timeval));
     #endif
 
     return s;
 }
 
-string getResponse(int socket){
+void createDir(string out){
+    errno = 0;
+    if (mkdir(out.c_str(), ACCESSPERMS)){
+        if (errno == EEXIST){
+            struct stat s;
+            if (stat(out.c_str(), &s) == 0){
+                if (s.st_mode & S_IFDIR){
+                    return;
+                }
+            }
+        }
+        errorHandle(DIRERR);
+    }
+}
+
+string getResponse(int socket, bool secure, SSL *ssl){
 
     char buffer[BUFF_SIZE];
     memset(buffer, '\0', BUFF_SIZE);
-    int response;
+    int bytes;
+    string response;
 
-    if( response = recv(socket , buffer , BUFF_SIZE , 0) < 0){
-        errorHandle(RESPERR);        
+    if (secure) {
+        do{
+            bytes = SSL_read(ssl, buffer, BUFF_SIZE); /* get reply & decrypt */
+            response += buffer;
+        }while(SSL_get_error(ssl, bytes) == SSL_ERROR_WANT_READ);
     }
-        
-    string s(buffer);
+    else{
+        do {
+            errno = 0;
+            if( bytes = recv(socket , buffer , BUFF_SIZE , 0) < 0){
+                if (errno = EAGAIN)
+                    continue;
+                errorHandle(RESPERR);        
+            }
+            response += buffer;
+        }while(bytes > 0);
+    }
 
-    return s;
+    return response;
 }
 
 string retrieveMessage(int socket){
@@ -91,9 +124,10 @@ string retrieveMessage(int socket){
 
     do{
         memset(buffer, '\0', BUFF_SIZE);
+        errno = 0;
         result = recv(socket , buffer , BUFF_SIZE , 0);
         if(result < 0){
-            if (errno = EAGAIN)
+            if (errno == EAGAIN)
                 break;
             errorHandle(RESPERR);
         }
@@ -102,27 +136,115 @@ string retrieveMessage(int socket){
             if (regex_search(buffer, rgx))
                 found = true;
         }
-        //FIXME: SMAZAT COMMENT
-       //cout << buffer << endl << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl << result << endl <<  "found:" << found << endl << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl << endl;
-    // }while(!regex_search(s, rgx));
     }while(!found || result > 0);
-
-    // not taking the finishing .\r\n as part of message
-    s.pop_back();
-    s.pop_back();
-    s.pop_back();
-
-    // regex response("\\+OK.*?\r\n([\\s\\S]*)");
-    // if (regex_search(s, match, response))
-    //     s = match[1];
 
     return s;
 }
 
-vector<string> getMessages(int socket, int num, bool del){
+string getMsgID(string msg){
+    int i_begin;
+    int i_end;
+    bool in = false;
+    string line;
+    string id = "";
+    regex rgx("message-?id: ?<", regex_constants::icase);
+
+    std::istringstream message(msg);
+
+    while (getline(message, line)){
+        if (in || regex_search(line, rgx)){
+            if (!in){
+                i_begin = line.find('<');
+                i_end = line.find('>');
+
+                if (i_end == -1){
+                    i_end = line.find("\r\n");
+                    in = true;
+                }
+
+                id = line.substr(i_begin+1, i_end-(i_begin+1));
+                if (!in)
+                    break;
+            }
+            else{
+                i_end = line.find('>');
+                if (i_end == -1){
+                    i_end = line.find("\r\n");
+                }
+
+                id += line.substr(0, i_end);
+            }
+        }
+    }
+
+    return id;
+}
+
+bool idHandle(string id){
+    fstream dbFile;
+    bool found = false;
+    string line;
+
+    dbFile.open("db.iddb", fstream::in | fstream::out);
+
+    while(getline(dbFile, line)){
+        if (line.find(id) != -1){
+            found = true;
+            break;
+        }
+    }
+    dbFile.close();
+
+    dbFile.open("db.iddb", ios::out | ios::app);
+
+    if (!found){
+        dbFile << id << endl;
+    }
+
+    dbFile.close();
+
+    return !found;
+}
+
+void writeMessage(string out, string msg){
+    ofstream output;
+    struct stat s;
+    int index = 1;
+    string file;
+
+    while (1) {
+        file = out + to_string(index);
+        if (stat (file.c_str(), &s) == 0){
+            index++;
+            continue;
+        }
+
+        output.open(out+to_string(index));
+        output << msg;
+        output.close();
+
+        break;
+    }
+}
+
+void deleteMessage(int i, int socket, bool secure, SSL *ssl){
+    string message = "DELE "+to_string(i)+"\r\n";
+    string buffer;
+
+    if (send(socket, message.c_str(), 8, 0) < 0)
+        errorHandle(COMERR);
+
+    buffer = getResponse(socket, secure, ssl);
+
+    cout << buffer << endl;
+}
+
+void getMessages(int socket, int num, bool del, string out, bool newOnly, bool deleteRead, bool secure, SSL *ssl){
     vector<string>  messages;
     string message;
     int result = 0;
+    string id;
+    bool newMsg = false;
 
     for (int i=1; i <= num; i++){
         message = "RETR "+to_string(i)+"\r\n";
@@ -138,21 +260,57 @@ vector<string> getMessages(int socket, int num, bool del){
         }
         // erasing the +OK ... line
         message.erase(0, message.find("\r\n") + 2);
+        // erasing the finishing .\r\n
+        int index = message.find("\r\n.\r\n");
+        message.erase(index+2, index+5);
         
-        messages.push_back(message);
-    }
+        id = getMsgID(message);
+        if (id.empty())
+            newMsg = true;
+        else
+            newMsg = idHandle(id);
 
-    return messages;
+        if (newOnly){
+            if (newMsg){
+                writeMessage(out, message);
+                if (deleteRead)
+                    deleteMessage(i, socket, secure, ssl);
+            }
+        }
+        else{
+            writeMessage(out, message);
+            if (deleteRead)
+                deleteMessage(i, socket, secure, ssl);
+        }
+    }
 }
 
-int countMessages(int socket){
+void authenticate(int socket, bool secure, SSL *ssl, string username, string password){
+    
+    if (secure){
+        
+    }
+    else{
+        if (send(socket, username.c_str(), username.length(), 0) < 0)
+        errorHandle(COMERR);
+    
+        getResponse(socket, secure, ssl);
+    
+        if (send(socket, password.c_str(), password.length(), 0) < 0)
+            errorHandle(COMERR);
+    
+        getResponse(socket, secure, ssl);
+    }
+}
+
+int countMessages(int socket, bool secure, SSL *ssl){
     string buffer;
     int count;
 
     if (send(socket, "STAT\r\n", 7, 0) < 0)
         errorHandle(COMERR);
 
-    buffer = getResponse(socket);
+    buffer = getResponse(socket, secure, ssl);
 
     smatch match;
     regex rgx("\\+OK ([0-9]*) .*");
@@ -164,18 +322,40 @@ int countMessages(int socket){
     return count;
 }
 
-int writeMessages(string out, vector<string> messages){
-    int fileIndex = 0;
-    ofstream output;
-    
-    for(auto const& msg: messages){
-        fileIndex++;
-        output.open(out+'/'+to_string(fileIndex));
-        output << msg;
-        output.close();
+// TODO: CITOVAT ZDROJ
+SSL_CTX* InitCTX(void)
+{   SSL_METHOD *method;
+    SSL_CTX *ctx;
+ 
+    OpenSSL_add_all_algorithms();  /* Load cryptos, et.al. */
+    SSL_load_error_strings();   /* Bring in and register error messages */
+    ctx = SSL_CTX_new(TLSv1_2_client_method());   /* Create new context */
+    if ( ctx == NULL )
+    {
+        ERR_print_errors_fp(stderr);
+        abort();
     }
+    return ctx;
+}
 
-    return 0;
+void ShowCerts(SSL* ssl)
+{   X509 *cert;
+    char *line;
+ 
+    cert = SSL_get_peer_certificate(ssl); /* get the server's certificate */
+    if ( cert != NULL )
+    {
+        printf("Server certificates:\n");
+        line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+        printf("Subject: %s\n", line);
+        free(line);       /* free the malloc'ed string */
+        line = X509_NAME_oneline(X509_get_issuer_name(cert), 0, 0);
+        printf("Issuer: %s\n", line);
+        free(line);       /* free the malloc'ed string */
+        X509_free(cert);     /* free the malloc'ed certificate copy */
+    }
+    else
+        printf("Info: No client certificates configured.\n");
 }
 
 int main(int argc, char* argv[])
@@ -184,10 +364,13 @@ int main(int argc, char* argv[])
     bool stls       = false;
     bool deleteRead = false;
     bool newOnly    = false;
+    bool secure     = false;
     int port        = 0;
     int popSocket;
+    SSL_CTX *ctx = NULL;
+    SSL *ssl = NULL;
+
     string certFile;
-    
     string certDir;
     string authFile;
     string outDir;
@@ -209,8 +392,10 @@ int main(int argc, char* argv[])
                 break;
             case 'T':
                 pop3s = true;
+                secure = true;
                 break;
             case 'S':
+                secure = true;
                 stls = true;
                 break;
             case 'c':
@@ -228,6 +413,7 @@ int main(int argc, char* argv[])
             case 'a':
                 authFile = optarg;
                 break;
+            // TODO: V DOKUMENTACI UVEST ZE NELZE VYTVORIT VICE JAK JEDNU NOVOU SLOZKU VE STROMU
             case 'o':
                 outDir = optarg;
                 break;   
@@ -247,11 +433,42 @@ int main(int argc, char* argv[])
         errorHandle(ARGERR);
     else 
         host = argv[optind];
+    
+    if (outDir.back() != '/')
+        outDir.push_back('/');
 
     /*
     *   TODO: Illegal option combinations
     */
     //if (stls && pop3s) errorHandle(ARGERR)
+
+    // preparing the output directory
+    createDir(outDir);
+
+    /*
+    *   Preparing authorization strings
+    */
+    ifstream authInput;
+    string username;
+    string password;
+
+    authInput.open(authFile);
+    getline(authInput, username);
+    getline(authInput, password);
+    authInput.close();
+
+    smatch match;
+    regex rgx("(?:username|password) = (.*)");
+    regex_search(username, match, rgx);
+    username = match[1];
+    regex_search(password, match, rgx);
+    password = match[1];
+
+    /*
+    *   AUTHORIZATION state
+    */
+    string authString = "USER " + username + "\r\n";
+    string passString = "PASS " + password + "\r\n";
 
 
     /*
@@ -292,43 +509,24 @@ int main(int argc, char* argv[])
     if(connect(popSocket, (struct sockaddr *)&sa, sizeof(sa)) < 0 )
         errorHandle(CONNECTERR);
 
-    response = getResponse(popSocket);
-
-
-    /*
-    *   Preparing authorization strings
-    */
-    ifstream authInput;
-    string username;
-    string password;
-
-    authInput.open(authFile);
-    getline(authInput, username);
-    getline(authInput, password);
-    authInput.close();
-
-    smatch match;
-    regex rgx("(?:username|password) = (.*)");
-    regex_search(username, match, rgx);
-    username = match[1];
-    regex_search(password, match, rgx);
-    password = match[1];
-
-    /*
-    *   AUTHORIZATION state
-    */
-    string authString = "USER " + username + "\r\n";
-    string passString = "PASS " + password + "\r\n";
-
-    if (send(popSocket, authString.c_str(), authString.length(), 0) < 0)
-        errorHandle(COMERR);
+    if (secure){
+        SSL_library_init();
+        ctx = InitCTX();
+        ssl = SSL_new(ctx);      /* create new SSL connection state */
+        SSL_set_fd(ssl, popSocket);    /* attach the socket descriptor */
+        if ( SSL_connect(ssl) == -1 )   /* perform the connection */
+            ERR_print_errors_fp(stderr);
+        else
+        { 
+            //TODO: kontrola certifikatu
+            printf("Connected with %s encryption\n", SSL_get_cipher(ssl));
+            ShowCerts(ssl);        /* get any certs */
+        }
+    }
     
-    response = getResponse(popSocket);
-    
-    if (send(popSocket, passString.c_str(), passString.length(), 0) < 0)
-        errorHandle(COMERR);
+    response = getResponse(popSocket, secure, ssl);
 
-    response = getResponse(popSocket);
+    authenticate(popSocket, secure, ssl, authString, passString);
 
     /*
     *   TRANSACTION state
@@ -336,10 +534,10 @@ int main(int argc, char* argv[])
 
     vector<string> messages;
     int messageNum;
-    messageNum = countMessages(popSocket);
+    messageNum = countMessages(popSocket, secure, ssl);
 
     if (messageNum){
-        messages = getMessages(popSocket, messageNum, deleteRead);
+        getMessages(popSocket, messageNum, deleteRead, outDir, newOnly, deleteRead, secure, ssl);
     }
     else{
         cout << "Nejsou k dispozici žádné zprávy ke stažení.";
@@ -357,10 +555,15 @@ int main(int argc, char* argv[])
     if (send(popSocket, "QUIT\r\n", 7, 0) < 0)
         errorHandle(COMERR);
 
-    response = getResponse(popSocket);
+    response = getResponse(popSocket, secure, ssl);
 
-    
-    writeMessages(outDir, messages);
+
+    if (secure){
+        SSL_CTX_free(ctx);        /* release context */
+        SSL_free(ssl);            /* free SSL */
+    }
+
+    close(popSocket);
 
 	return 0;
 }

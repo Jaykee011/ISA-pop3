@@ -1,0 +1,41 @@
+Received: from o1.l99.sendgrid.net (o1.l99.sendgrid.net [198.37.153.74])
+	by email-smtpd5.ko.seznam.cz (Seznam SMTPD 1.3.67) with ESMTP;
+	Fri, 27 Oct 2017 09:33:08 +0200 (CEST)  
+DKIM-Signature: v=1; a=rsa-sha1; c=relaxed/relaxed; d=feistyduck.com; 
+	h=from:to:subject:mime-version:content-type:content-transfer-encoding; 
+	s=s1; bh=WWCxsXFW2HE0XTocxfbTXEnY1vk=; b=b6Ps4FPp5zbna33Vwdr3KRh
+	z+QeydgCS/5IWTFA+ng4fwcxhcNPddauUWXjgFkSWpb94Y8thNbpCOt/u0xIIiby
+	MSQIxgVRkarbmvX2hDBvLoLx2w3JHFFFvoLEbN4wDpmiScUG3X74mRqLn4HXUxg+
+	RR7QLLFHGvM14BRGAQvY=
+Received: by filter1190p1mdw1.sendgrid.net with SMTP id filter1190p1mdw1-23354-59F2E132-5
+        2017-10-27 07:33:06.26259691 +0000 UTC
+Received: from castor.feistyduck.com (castor.feistyduck.com [104.130.13.11])
+	by ismtpd0009p1iad1.sendgrid.net (SG) with ESMTP id qIhsL-FzSfSe2B9NcIf2wg
+	for <isaproject@email.cz>; Fri, 27 Oct 2017 07:33:06.226 +0000 (UTC)
+Date: Fri, 27 Oct 2017 07:33:06 +0000 (UTC)
+From: Feisty Duck <support@feistyduck.com>
+To: test test <isaproject@email.cz>
+Message-ID: <179186533.14.1509089586160.JavaMail.tomcat@castor>
+Subject: Please confirm your registration
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+Envelope-To: test test <isaproject@email.cz>
+X-FeistyId: 819099
+X-Envelope-To: test test <isaproject@email.cz>
+X-SG-EID: 3CA/h5NaDopXs81hrNJDRpjUq1KXRkT2n9Xtc4/ARH4Wwlsg/UMb4s9Sd+xjXzeiCJV0AMHFhMIV43
+ y1wKYKhpNssYBT6KvoRuShlbrs/f9pBfte6ZSHYkNQSwRQwEjrqSYOkkV454p+sGIt73MgRyb3m8z/
+ JFwPnQAimBezsn5u4haFlYAaZ/j831P+AxypcD60LWGecvxsALbsmFZsC5KoXKxmG0pZFAypPTWYdA
+ M=
+
+We have received your request to create a new account on our web site. Please click
+the link below to verify your email address and complete the registration process:
+
+  https://www.feistyduck.com/account/registerStepTwo?code=108e8366c11e3fef3e84bb9ed5a9184f
+
+Please note that the link will remain valid for 7 days. If you did not register
+for an account, please just ignore this email and we won't bother you again.
+
+--
+Kind regards,
+Feisty Duck
