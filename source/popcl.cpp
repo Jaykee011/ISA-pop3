@@ -24,8 +24,6 @@ void errorHandle (int type){
             exit(COMERR);
         case RESPERR:
             cerr << "Error: RESPONSE_ERROR - SERVER RESPONSE ERROR";
-            //FIXME:
-            // exit(RESPERR);
             exit(errno);
         case RETRERR:
             cerr << "Error: RETRIEVE_ERROR - MAIL RETRIEVE ERROR";
@@ -89,18 +87,19 @@ void createDir(string out){
 string getResponse(int socket, bool secure, SSL *ssl){
 
     char buffer[BUFF_SIZE];
-    memset(buffer, '\0', BUFF_SIZE);
     int bytes;
     string response;
 
     if (secure) {
         do{
+            memset(buffer, '\0', BUFF_SIZE);
             bytes = SSL_read(ssl, buffer, BUFF_SIZE); /* get reply & decrypt */
             response += buffer;
         }while(SSL_get_error(ssl, bytes) == SSL_ERROR_WANT_READ);
     }
     else{
         do {
+            memset(buffer, '\0', BUFF_SIZE);
             errno = 0;
             if( bytes = recv(socket , buffer , BUFF_SIZE , 0) < 0){
                 if (errno = EAGAIN)
@@ -114,8 +113,9 @@ string getResponse(int socket, bool secure, SSL *ssl){
     return response;
 }
 
-string retrieveMessage(int socket){
+string retrieveMessage(int socket, bool secure, SSL *ssl){
     char buffer[BUFF_SIZE];
+    int bytes;
     bool found = false;
     int result;
     string s = "";
@@ -125,11 +125,17 @@ string retrieveMessage(int socket){
     do{
         memset(buffer, '\0', BUFF_SIZE);
         errno = 0;
-        result = recv(socket , buffer , BUFF_SIZE , 0);
-        if(result < 0){
-            if (errno == EAGAIN)
+        if (secure){
+            bytes = SSL_read(ssl, buffer, BUFF_SIZE);
+            result = SSL_get_error(ssl, bytes);
+        }
+        else{
+            result = recv(socket , buffer , BUFF_SIZE , 0);
+            if(result < 0){
+                if (errno == EAGAIN)
                 break;
-            errorHandle(RESPERR);
+                errorHandle(RESPERR);
+            }
         }
         s.append(buffer);
         if (!found){
@@ -229,35 +235,45 @@ void writeMessage(string out, string msg){
 
 void deleteMessage(int i, int socket, bool secure, SSL *ssl){
     string message = "DELE "+to_string(i)+"\r\n";
-    string buffer;
 
-    if (send(socket, message.c_str(), 8, 0) < 0)
+    if (secure){
+        if (SSL_write(ssl, message.c_str(), message.length()) < 0)
+            errorHandle(COMERR);
+    }
+    else{
+        if (send(socket, message.c_str(), 8, 0) < 0)
         errorHandle(COMERR);
-
-    buffer = getResponse(socket, secure, ssl);
-
-    cout << buffer << endl;
+    }
+        
+    getResponse(socket, secure, ssl);
 }
 
 void getMessages(int socket, int num, bool del, string out, bool newOnly, bool deleteRead, bool secure, SSL *ssl){
     vector<string>  messages;
     string message;
     int result = 0;
+    int written = 0;
     string id;
     bool newMsg = false;
 
     for (int i=1; i <= num; i++){
         message = "RETR "+to_string(i)+"\r\n";
 
-        if (send(socket, message.c_str(), message.length(), 0) < 0)
-            errorHandle(COMERR);
-        
-        //FIXME: NAJDI LEPSI ReSENI!  
-        message = retrieveMessage(socket);
+        if (secure){
+            if (SSL_write(ssl, message.c_str(), message.length()) < 0)
+                errorHandle(COMERR);
+        }
+        else{
+            if (send(socket, message.c_str(), message.length(), 0) < 0)
+                errorHandle(COMERR);
+        }
+
+        message = retrieveMessage(socket, secure, ssl);
         if (message[0] == '-'){
             i--;
             continue;
         }
+
         // erasing the +OK ... line
         message.erase(0, message.find("\r\n") + 2);
         // erasing the finishing .\r\n
@@ -272,6 +288,7 @@ void getMessages(int socket, int num, bool del, string out, bool newOnly, bool d
 
         if (newOnly){
             if (newMsg){
+                written++;
                 writeMessage(out, message);
                 if (deleteRead)
                     deleteMessage(i, socket, secure, ssl);
@@ -279,26 +296,36 @@ void getMessages(int socket, int num, bool del, string out, bool newOnly, bool d
         }
         else{
             writeMessage(out, message);
+            written++;
             if (deleteRead)
                 deleteMessage(i, socket, secure, ssl);
         }
     }
+
+    if (newOnly && !written)
+        cout << "Nejsou k dispozici žádné nové zprávy ke stažení." << endl;
+    else
+        cout << "Staženo " << written << " zpráv." << endl;
 }
 
 void authenticate(int socket, bool secure, SSL *ssl, string username, string password){
-    
+
     if (secure){
-        
+        if (SSL_write(ssl, username.c_str(), username.length()) < 0)
+            errorHandle(COMERR);   /* encrypt & send message */
+        getResponse(socket, secure, ssl);
+
+        if (SSL_write(ssl, password.c_str(), password.length()) < 0)   /* encrypt & send message */
+            errorHandle(COMERR);
+        getResponse(socket, secure, ssl);
     }
     else{
         if (send(socket, username.c_str(), username.length(), 0) < 0)
-        errorHandle(COMERR);
-    
+            errorHandle(COMERR);
         getResponse(socket, secure, ssl);
     
         if (send(socket, password.c_str(), password.length(), 0) < 0)
             errorHandle(COMERR);
-    
         getResponse(socket, secure, ssl);
     }
 }
@@ -307,9 +334,17 @@ int countMessages(int socket, bool secure, SSL *ssl){
     string buffer;
     int count;
 
-    if (send(socket, "STAT\r\n", 7, 0) < 0)
-        errorHandle(COMERR);
+    string command = "STAT\r\n";
 
+    if (secure){
+        if (SSL_write(ssl, command.c_str(), command.length()) < 0)
+            errorHandle(COMERR);
+    }
+    else{
+        if (send(socket, command.c_str(), command.length(), 0) < 0)
+            errorHandle(COMERR);
+    }
+    
     buffer = getResponse(socket, secure, ssl);
 
     smatch match;
@@ -320,6 +355,19 @@ int countMessages(int socket, bool secure, SSL *ssl){
         count=0; 
 
     return count;
+}
+
+void endCommunication(int socket, bool secure, SSL *ssl){
+    string message = "QUIT\r\n";
+    
+    if (secure){
+        if (SSL_write(ssl, message.c_str(), message.length()) < 0)
+            errorHandle(COMERR);
+    }
+    else{
+        if (send(socket, message.c_str(), message.length(), 0) < 0)
+            errorHandle(COMERR);
+    }
 }
 
 // TODO: CITOVAT ZDROJ
@@ -437,10 +485,8 @@ int main(int argc, char* argv[])
     if (outDir.back() != '/')
         outDir.push_back('/');
 
-    /*
-    *   TODO: Illegal option combinations
-    */
-    //if (stls && pop3s) errorHandle(ARGERR)
+    if (stls && pop3s) 
+        errorHandle(ARGERR);
 
     // preparing the output directory
     createDir(outDir);
@@ -532,29 +578,23 @@ int main(int argc, char* argv[])
     *   TRANSACTION state
     */
 
-    vector<string> messages;
-    int messageNum;
-    messageNum = countMessages(popSocket, secure, ssl);
+    int messageAmount;
+    messageAmount = countMessages(popSocket, secure, ssl);
 
-    if (messageNum){
-        getMessages(popSocket, messageNum, deleteRead, outDir, newOnly, deleteRead, secure, ssl);
+    if (messageAmount){
+        getMessages(popSocket, messageAmount, deleteRead, outDir, newOnly, deleteRead, secure, ssl);
     }
     else{
-        cout << "Nejsou k dispozici žádné zprávy ke stažení.";
-        //TODO: JESTE -d posefit
-        if (send(popSocket, "QUIT\r\n", 7, 0) < 0)
-            errorHandle(COMERR);
+        cout << "Nejsou k dispozici žádné zprávy ke stažení." << endl;
+        endCommunication(popSocket, secure, ssl);
         return 0;
     }
-
 
     /*
     *   UPDATE state
     */
 
-    if (send(popSocket, "QUIT\r\n", 7, 0) < 0)
-        errorHandle(COMERR);
-
+    endCommunication(popSocket, secure, ssl);
     response = getResponse(popSocket, secure, ssl);
 
 
