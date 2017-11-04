@@ -554,8 +554,16 @@ int main(int argc, char* argv[])
     popSocket = socketInit(IPv);
     string response;
 
-    if(connect(popSocket, (struct sockaddr *)&sa, sizeof(sa)) < 0 )
-        errorHandle(CONNECTERR);
+    if (IPv == AF_INET){ 
+        if(connect(popSocket, (struct sockaddr *)&sa, sizeof(sa)) < 0 )
+            errorHandle(CONNECTERR);
+    }
+    else {    
+        if(connect(popSocket, (struct sockaddr *)&sa6, sizeof(sa6)) < 0 )
+            errorHandle(CONNECTERR);sin6_port = htons(port);
+    }
+
+
 
     if (stls){
         getResponse(popSocket, secure, ssl);
