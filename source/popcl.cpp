@@ -31,6 +31,9 @@ void errorHandle (int type){
         case DIRERR:
             cerr << "Error: DIRECTORY_ERROR - COULD NOT CREATE OUTPUT DIRECTORY";
             exit(errno);            
+        case CERTERR:
+            cerr << "Error: CERTIFICATE NOT VERIFIED OR NOT PRESENTED";
+            exit (CERTERR);
         default:
             exit(-1);
             break;
@@ -386,40 +389,45 @@ SSL_CTX* InitCTX(void)
     return ctx;
 }
 
-void ShowCerts(SSL* ssl)
+void checkCertificates(SSL* ssl, bool certProvided, string certDir, string certFile)
 {   X509 *cert;
     char *line;
+
+    // if (!certProvided)
+    //     SSL_CTX_set_default_verify_paths(ssl);
  
-    cert = SSL_get_peer_certificate(ssl); /* get the server's certificate */
-    if ( cert != NULL )
-    {
-        printf("Server certificates:\n");
-        line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
-        printf("Subject: %s\n", line);
-        free(line);       /* free the malloc'ed string */
-        line = X509_NAME_oneline(X509_get_issuer_name(cert), 0, 0);
-        printf("Issuer: %s\n", line);
-        free(line);       /* free the malloc'ed string */
-        X509_free(cert);     /* free the malloc'ed certificate copy */
-    }
-    else
-        printf("Info: No client certificates configured.\n");
+    // cert = SSL_get_peer_certificate(ssl); /* get the server's certificate */
+    // if ( cert != NULL )
+    // {
+
+    //     printf("Server certificates:\n");
+    //     line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+    //     printf("Subject: %s\n", line);
+    //     free(line);       /* free the malloc'ed string */
+    //     line = X509_NAME_oneline(X509_get_issuer_name(cert), 0, 0);
+    //     printf("Issuer: %s\n", line);
+    //     free(line);       /* free the malloc'ed string */
+    //     X509_free(cert);     /* free the malloc'ed certificate copy */
+    // }
+    // else
+    //     errorHandle(CERTERR);
 }
 
 int main(int argc, char* argv[])
 {
-    bool pop3s      = false;
-    bool stls       = false;
-    bool deleteRead = false;
-    bool newOnly    = false;
-    bool secure     = false;
-    int port        = 0;
+    bool pop3s          = false;
+    bool stls           = false;
+    bool deleteRead     = false;
+    bool newOnly        = false;
+    bool secure         = false;
+    bool certProvided   = false;
+    int port            = 0;
     int popSocket;
-    SSL_CTX *ctx = NULL;
-    SSL *ssl = NULL;
+    SSL_CTX *ctx        = NULL;
+    SSL *ssl            = NULL;
 
-    string certFile;
-    string certDir;
+    string certFile = "";
+    string certDir = "";
     string authFile;
     string outDir;
 	string host;
@@ -443,14 +451,15 @@ int main(int argc, char* argv[])
                 secure = true;
                 break;
             case 'S':
-                secure = true;
                 stls = true;
                 break;
             case 'c':
                 certFile = optarg;
+                certProvided = true;
                 break;
             case 'C':
                 certDir = optarg;
+                certProvided = true;
                 break;
             case 'd':
                 deleteRead = true;
@@ -511,13 +520,6 @@ int main(int argc, char* argv[])
     password = match[1];
 
     /*
-    *   AUTHORIZATION state
-    */
-    string authString = "USER " + username + "\r\n";
-    string passString = "PASS " + password + "\r\n";
-
-
-    /*
     *   Resolving Hostname or IP address
     */    
     sockaddr_in sa;
@@ -555,6 +557,16 @@ int main(int argc, char* argv[])
     if(connect(popSocket, (struct sockaddr *)&sa, sizeof(sa)) < 0 )
         errorHandle(CONNECTERR);
 
+    if (stls){
+        getResponse(popSocket, secure, ssl);
+        string initiation = "STLS\r\n";
+
+        if (send(popSocket, initiation.c_str(), initiation.length(), 0) < 0)
+            errorHandle(COMERR);
+        cout << getResponse(popSocket, secure, ssl) << endl;
+        secure = true;
+    }
+
     if (secure){
         SSL_library_init();
         ctx = InitCTX();
@@ -566,11 +578,18 @@ int main(int argc, char* argv[])
         { 
             //TODO: kontrola certifikatu
             printf("Connected with %s encryption\n", SSL_get_cipher(ssl));
-            ShowCerts(ssl);        /* get any certs */
+            //checkCertificates(ssl, certProvided, certDir, certFile);        /* get any certs */
         }
     }
     
-    response = getResponse(popSocket, secure, ssl);
+    if (!stls)
+        response = getResponse(popSocket, secure, ssl);
+
+    /*
+    *   AUTHORIZATION state
+    */
+    string authString = "USER " + username + "\r\n";
+    string passString = "PASS " + password + "\r\n";
 
     authenticate(popSocket, secure, ssl, authString, passString);
 

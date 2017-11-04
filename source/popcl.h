@@ -40,5 +40,6 @@
 #define RESPERR             8
 #define RETRERR             9
 #define DIRERR              10
+#define CERTERR             11
 
 using namespace std;
