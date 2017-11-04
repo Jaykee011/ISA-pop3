@@ -560,7 +560,7 @@ int main(int argc, char* argv[])
     }
     else {    
         if(connect(popSocket, (struct sockaddr *)&sa6, sizeof(sa6)) < 0 )
-            errorHandle(CONNECTERR);sin6_port = htons(port);
+            errorHandle(CONNECTERR);
     }
 
 
