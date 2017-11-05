@@ -10,3 +10,4 @@ catcerts.pem
 popcl
 popcl.cpp
 db.iddb
+popcl.h
