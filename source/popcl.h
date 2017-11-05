@@ -41,5 +41,6 @@
 #define RETRERR             9
 #define DIRERR              10
 #define CERTERR             11
+#define INITERR             12
 
 using namespace std;

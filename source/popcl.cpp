@@ -8,32 +8,35 @@ void errorHandle (int type){
             exit(ARGERR);
             break;
         case HOSTERR:
-            cerr << "Error: HOSTNAME_ERROR - INVALID ADDRESS OR HOSTNAME";
+            cerr << "Error: HOSTNAME_ERROR - INVALID ADDRESS OR HOSTNAME\n";
             exit(HOSTERR);
         case AUTHERR:
-            cerr << "Error: AUTHORIZATION_ERROR - COULD NOT AUTHORIZE";
+            cerr << "Error: AUTHORIZATION_ERROR - COULD NOT AUTHORIZE\n";
             exit(AUTHERR);
         case SOCKERR:
-            cerr << "Error: SOCKET_ERROR";
+            cerr << "Error: SOCKET_ERROR\n";
             exit(SOCKERR);
         case CONNECTERR:
-            cerr << "Error: CONNECT_ERROR - ERROR CONNECTING TO SERVER";
+            cerr << "Error: CONNECT_ERROR - ERROR CONNECTING TO SERVER\n";
             exit(CONNECTERR);
         case COMERR:
-            cerr << "Error: COMMUNICATION_ERROR - ERROR SENDING MESSAGE";
+            cerr << "Error: COMMUNICATION_ERROR - ERROR SENDING MESSAGE\n";
             exit(COMERR);
         case RESPERR:
-            cerr << "Error: RESPONSE_ERROR - SERVER RESPONSE ERROR";
+            cerr << "Error: RESPONSE_ERROR - SERVER RESPONSE ERROR\n";
             exit(errno);
         case RETRERR:
-            cerr << "Error: RETRIEVE_ERROR - MAIL RETRIEVE ERROR";
+            cerr << "Error: RETRIEVE_ERROR - MAIL RETRIEVE ERROR\n";
             exit(RETRERR);
         case DIRERR:
-            cerr << "Error: DIRECTORY_ERROR - COULD NOT CREATE OUTPUT DIRECTORY";
+            cerr << "Error: DIRECTORY_ERROR - COULD NOT CREATE OUTPUT DIRECTORY\n";
             exit(errno);            
         case CERTERR:
-            cerr << "Error: CERTIFICATE NOT VERIFIED OR NOT PRESENTED";
+            cerr << "Error: CERTIFICATE NOT VERIFIED OR NOT PRESENTED\n";
             exit (CERTERR);
+        case INITERR:
+            cerr << "Error: ERROR HAPPENNED DURING INITIALIZATION\n";
+            exit(INITERR);
         default:
             exit(-1);
             break;
@@ -313,24 +316,29 @@ void getMessages(int socket, int num, bool del, string out, bool newOnly, bool d
 
 void authenticate(int socket, bool secure, SSL *ssl, string username, string password){
 
+    string resp;
+
     if (secure){
         if (SSL_write(ssl, username.c_str(), username.length()) < 0)
             errorHandle(COMERR);   /* encrypt & send message */
-        getResponse(socket, secure, ssl);
+        resp = getResponse(socket, secure, ssl);
 
         if (SSL_write(ssl, password.c_str(), password.length()) < 0)   /* encrypt & send message */
             errorHandle(COMERR);
-        getResponse(socket, secure, ssl);
+        resp = getResponse(socket, secure, ssl);
     }
     else{
         if (send(socket, username.c_str(), username.length(), 0) < 0)
             errorHandle(COMERR);
-        getResponse(socket, secure, ssl);
+        resp = getResponse(socket, secure, ssl);
     
         if (send(socket, password.c_str(), password.length(), 0) < 0)
             errorHandle(COMERR);
-        getResponse(socket, secure, ssl);
+        resp = getResponse(socket, secure, ssl);
     }
+
+    if (resp[0] == '-')
+        errorHandle(AUTHERR);
 }
 
 int countMessages(int socket, bool secure, SSL *ssl){
@@ -381,37 +389,50 @@ SSL_CTX* InitCTX(void)
     OpenSSL_add_all_algorithms();  /* Load cryptos, et.al. */
     SSL_load_error_strings();   /* Bring in and register error messages */
     ctx = SSL_CTX_new(TLSv1_2_client_method());   /* Create new context */
+
     if ( ctx == NULL )
-    {
-        ERR_print_errors_fp(stderr);
-        abort();
-    }
+        errorHandle(INITERR);
+
     return ctx;
 }
 
-void checkCertificates(SSL* ssl, bool certProvided, string certDir, string certFile)
+void sslInitiate(SSL* ssl, SSL_CTX *ctx, bool certProvided, string certDir, string certFile)
 {   X509 *cert;
-    char *line;
+    int ret;
 
-    // if (!certProvided)
-    //     SSL_CTX_set_default_verify_paths(ssl);
+    if (!certProvided)
+        SSL_CTX_set_default_verify_paths(ctx);
+    else{
+        const char *cd = NULL;
+        const char *cf = NULL;
+        if (!certDir.empty())
+            cd = certDir.c_str();
+        if (!certFile.empty())
+            cf = certFile.c_str();
+
+        SSL_CTX_load_verify_locations(ctx, cf, cd);
+    }
+
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL); 
+
+    if ( SSL_connect(ssl) == -1 )   /* perform the connection */
+        errorHandle(CONNECTERR);
  
-    // cert = SSL_get_peer_certificate(ssl); /* get the server's certificate */
-    // if ( cert != NULL )
-    // {
+    cert = SSL_get_peer_certificate(ssl); /* get the server's certificate */
+    if ( cert != NULL )
+    {
+        if ((ret = SSL_get_verify_result(ssl)) != X509_V_OK){
+            X509_free(cert);
+            errorHandle(CERTERR);
+        }
 
-    //     printf("Server certificates:\n");
-    //     line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
-    //     printf("Subject: %s\n", line);
-    //     free(line);       /* free the malloc'ed string */
-    //     line = X509_NAME_oneline(X509_get_issuer_name(cert), 0, 0);
-    //     printf("Issuer: %s\n", line);
-    //     free(line);       /* free the malloc'ed string */
-    //     X509_free(cert);     /* free the malloc'ed certificate copy */
-    // }
-    // else
-    //     errorHandle(CERTERR);
-}
+        X509_free(cert);
+    }
+    else{
+        X509_free(cert);
+        errorHandle(CERTERR);
+    }
+}       
 
 int main(int argc, char* argv[])
 {
@@ -514,9 +535,11 @@ int main(int argc, char* argv[])
 
     smatch match;
     regex rgx("(?:username|password) = (.*)");
-    regex_search(username, match, rgx);
+    if (!regex_search(username, match, rgx))
+        errorHandle(AUTHERR);
     username = match[1];
-    regex_search(password, match, rgx);
+    if (!regex_search(password, match, rgx))
+        errorHandle(AUTHERR);
     password = match[1];
 
     /*
@@ -563,15 +586,13 @@ int main(int argc, char* argv[])
             errorHandle(CONNECTERR);
     }
 
-
-
     if (stls){
         getResponse(popSocket, secure, ssl);
         string initiation = "STLS\r\n";
 
         if (send(popSocket, initiation.c_str(), initiation.length(), 0) < 0)
             errorHandle(COMERR);
-        cout << getResponse(popSocket, secure, ssl) << endl;
+        getResponse(popSocket, secure, ssl);
         secure = true;
     }
 
@@ -580,14 +601,7 @@ int main(int argc, char* argv[])
         ctx = InitCTX();
         ssl = SSL_new(ctx);      /* create new SSL connection state */
         SSL_set_fd(ssl, popSocket);    /* attach the socket descriptor */
-        if ( SSL_connect(ssl) == -1 )   /* perform the connection */
-            ERR_print_errors_fp(stderr);
-        else
-        { 
-            //TODO: kontrola certifikatu
-            printf("Connected with %s encryption\n", SSL_get_cipher(ssl));
-            //checkCertificates(ssl, certProvided, certDir, certFile);        /* get any certs */
-        }
+        sslInitiate(ssl, ctx, certProvided, certDir, certFile); /* initiate connection and check certificates */
     }
     
     if (!stls)
