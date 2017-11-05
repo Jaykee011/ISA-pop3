@@ -4,6 +4,9 @@ out/
 out/*
 .vscode/
 .vscode/*
+certs/
+certs/*
+catcerts.pem
 popcl
 popcl.cpp
 db.iddb
