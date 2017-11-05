@@ -1,0 +1,9 @@
+auth
+auths
+out/
+out/*
+.vscode/
+.vscode/*
+popcl
+popcl.cpp
+db.iddb
