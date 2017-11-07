@@ -1,6 +1,6 @@
 # Popcl
 
-This is a project for Network Applications class at Brno University of Technology.
+This is a project for Network Applications class at Brno University of Technology, Faculty of Information Technology.
 
 This is a simple pop3(s) client. SSL/TLS is implemented using the openssl library without the usage of BIO structures as per assignment.
 
