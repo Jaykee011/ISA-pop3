@@ -40,6 +40,9 @@ void errorHandle (int type){
         case INITERR:
             cerr << "Error: INITIALIZATION ERROR - ERROR HAPPENNED DURING SSL INITIALIZATION\n";
             exit(INITERR);
+        case STLSERR:
+            cerr << "Error: STLS ERROR - THERE WAS AN ERROR WHILE ESTABLISHING SSL USING STLS\n";
+            exit(STLSERR);
         default:
             exit(-1);
             break;
@@ -468,8 +471,11 @@ void sslInitiate(SSL* ssl, SSL_CTX *ctx, bool certProvided, string certDir, stri
 
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL); 
 
-    if ( SSL_connect(ssl) == -1 )   /* perform the connection */
-        errorHandle(CONNECTERR);
+    do{
+        if ( SSL_connect(ssl) == -1 )   /* perform the connection */
+            if (errno != EAGAIN)
+                errorHandle(CONNECTERR);
+    }while(errno == EAGAIN);
  
     cert = SSL_get_peer_certificate(ssl); /* get the server's certificate */
     if ( cert != NULL )
@@ -632,13 +638,20 @@ int main(int argc, char* argv[])
     popSocket = socketInit(IPv);
     string response;
 
+    errno = 0;
     if (IPv == AF_INET){ 
-        if(connect(popSocket, (struct sockaddr *)&sa, sizeof(sa)) < 0 )
-            errorHandle(CONNECTERR);
+        do{
+            if(connect(popSocket, (struct sockaddr *)&sa, sizeof(sa)) < 0 )
+                if (errno != EAGAIN)    
+                    errorHandle(CONNECTERR);
+        }while(errno == EAGAIN);
     }
     else {    
-        if(connect(popSocket, (struct sockaddr *)&sa6, sizeof(sa6)) < 0 )
-            errorHandle(CONNECTERR);
+        do{
+            if(connect(popSocket, (struct sockaddr *)&sa6, sizeof(sa6)) < 0 )
+                if (errno != EAGAIN)
+                    errorHandle(CONNECTERR);
+        }while(errno == EAGAIN);
     }
 
     /*
@@ -650,7 +663,9 @@ int main(int argc, char* argv[])
 
         if (send(popSocket, initiation.c_str(), initiation.length(), 0) < 0)
             errorHandle(COMERR);
-        getResponse(popSocket, secure, ssl);
+        response = getResponse(popSocket, secure, ssl);
+        if (response[0] == '-')
+            errorHandle(STLSERR);
         secure = true;
     }
 

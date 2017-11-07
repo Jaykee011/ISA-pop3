@@ -35,6 +35,7 @@
 #define SOCKERR             3   //  Error while performing socket operation
 #define CONNECTERR          4   //  Error while connecting to host
 #define AUTHERR             5   //  Error during authorization or invalid auth file
+#define STLSERR             6   //  Error while establishing TLS
 #define COMERR              7   //  Send Error
 #define RESPERR             8   //  Recv or Read Error
 #define RETRERR             9   //  Error while retrieving messages
