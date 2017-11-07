@@ -30,17 +30,16 @@
 
 #define FINE                0
 
-#define ARGERR              1
-#define HOSTERR             2
-#define SOCKERR             3
-#define CONNECTERR          4
-#define AUTHERR             5
-#define FILEERR             6
-#define COMERR              7
-#define RESPERR             8
-#define RETRERR             9
-#define DIRERR              10
-#define CERTERR             11
-#define INITERR             12
+#define ARGERR              1   //  Command-line argument error
+#define HOSTERR             2   //  Invalid hostname or address
+#define SOCKERR             3   //  Error while performing socket operation
+#define CONNECTERR          4   //  Error while connecting to host
+#define AUTHERR             5   //  Error during authorization or invalid auth file
+#define COMERR              7   //  Send Error
+#define RESPERR             8   //  Recv or Read Error
+#define RETRERR             9   //  Error while retrieving messages
+#define DIRERR              10  //  Error while creating directory
+#define CERTERR             11  //  Error while validating certificates
+#define INITERR             12  //  SSL initialization error
 
 using namespace std;

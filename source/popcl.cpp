@@ -1,5 +1,8 @@
 #include "popcl.h"
 
+/*
+*   Error handle function - writes error to stderr and exits with appropriate error code. (codes define in header)
+*/
 void errorHandle (int type){
     switch (type) {
         case ARGERR:
@@ -11,10 +14,10 @@ void errorHandle (int type){
             cerr << "Error: HOSTNAME_ERROR - INVALID ADDRESS OR HOSTNAME\n";
             exit(HOSTERR);
         case AUTHERR:
-            cerr << "Error: AUTHORIZATION_ERROR - COULD NOT AUTHORIZE\n";
+            cerr << "Error: AUTHORIZATION_ERROR - COULD NOT AUTHORIZE EITHER BECAUSE OF INVALID AUTH FILE OR WRONG AUTH INFO\n";
             exit(AUTHERR);
         case SOCKERR:
-            cerr << "Error: SOCKET_ERROR\n";
+            cerr << "Error: SOCKET_ERROR - COULD NOT CREATE SOCKET\n";
             exit(SOCKERR);
         case CONNECTERR:
             cerr << "Error: CONNECT_ERROR - ERROR CONNECTING TO SERVER\n";
@@ -32,10 +35,10 @@ void errorHandle (int type){
             cerr << "Error: DIRECTORY_ERROR - COULD NOT CREATE OUTPUT DIRECTORY\n";
             exit(errno);            
         case CERTERR:
-            cerr << "Error: CERTIFICATE NOT VERIFIED OR NOT PRESENTED\n";
+            cerr << "Error: CERTIFICATE ERROR - CERTIFICATE NOT VERIFIED, NOT PROVIDED OR INVALID CERTIFICATE PROVIDED\n";
             exit (CERTERR);
         case INITERR:
-            cerr << "Error: ERROR HAPPENNED DURING INITIALIZATION\n";
+            cerr << "Error: INITIALIZATION ERROR - ERROR HAPPENNED DURING SSL INITIALIZATION\n";
             exit(INITERR);
         default:
             exit(-1);
@@ -43,6 +46,9 @@ void errorHandle (int type){
     }
 }
 
+/*
+*   Initializing socket and setting timeout
+*/
 int socketInit(int IPv){
     
     int s;
@@ -75,6 +81,9 @@ int socketInit(int IPv){
     return s;
 }
 
+/*
+*   Creating output directory or seeing if it exists
+*/
 void createDir(string out){
     errno = 0;
     if (mkdir(out.c_str(), ACCESSPERMS)){
@@ -90,6 +99,9 @@ void createDir(string out){
     }
 }
 
+/*
+*   Function gets and returns server response to command
+*/
 string getResponse(int socket, bool secure, SSL *ssl){
 
     char buffer[BUFF_SIZE];
@@ -119,6 +131,9 @@ string getResponse(int socket, bool secure, SSL *ssl){
     return response;
 }
 
+/*
+*   Retrieves multi-line response from server and returns it
+*/
 string retrieveMessage(int socket, bool secure, SSL *ssl){
     char buffer[BUFF_SIZE];
     int bytes;
@@ -153,6 +168,9 @@ string retrieveMessage(int socket, bool secure, SSL *ssl){
     return s;
 }
 
+/*
+*   Retrieves unique message-id from downloaded message.
+*/
 string getMsgID(string msg){
     int i_begin;
     int i_end;
@@ -192,6 +210,11 @@ string getMsgID(string msg){
     return id;
 }
 
+/*
+*   Sees if provided message-id is already in the downloaded message database. 
+*   If it is a new message writes it's ID to the database.
+*   Returns if the message was already downloaded or not.
+*/
 bool idHandle(string id){
     fstream dbFile;
     bool found = false;
@@ -218,6 +241,9 @@ bool idHandle(string id){
     return !found;
 }
 
+/*
+*   Generates a message file and writes the provided message into it
+*/
 void writeMessage(string out, string msg){
     ofstream output;
     struct stat s;
@@ -239,6 +265,9 @@ void writeMessage(string out, string msg){
     }
 }
 
+/*
+*   Sends a delete command for provided message UID.
+*/
 void deleteMessage(int i, int socket, bool secure, SSL *ssl){
     string message = "DELE "+to_string(i)+"\r\n";
 
@@ -254,6 +283,10 @@ void deleteMessage(int i, int socket, bool secure, SSL *ssl){
     getResponse(socket, secure, ssl);
 }
 
+/*
+*   Retrieves all/new messages from the mail server and writes them to file.
+*   ID handling, deleting is handled from this function. 
+*/
 void getMessages(int socket, int num, bool del, string out, bool newOnly, bool deleteRead, bool secure, SSL *ssl){
     vector<string>  messages;
     string message;
@@ -262,6 +295,7 @@ void getMessages(int socket, int num, bool del, string out, bool newOnly, bool d
     string id;
     bool newMsg = false;
 
+    // Retrieving and handling messages
     for (int i=1; i <= num; i++){
         message = "RETR "+to_string(i)+"\r\n";
 
@@ -286,12 +320,14 @@ void getMessages(int socket, int num, bool del, string out, bool newOnly, bool d
         int index = message.find("\r\n.\r\n");
         message.erase(index+2, index+5);
         
+        //handling ID
         id = getMsgID(message);
         if (id.empty())
             newMsg = true;
         else
             newMsg = idHandle(id);
 
+        //writing to file and sending delete commands if requested
         if (newOnly){
             if (newMsg){
                 written++;
@@ -314,6 +350,9 @@ void getMessages(int socket, int num, bool del, string out, bool newOnly, bool d
         cout << "Staženo " << written << " zpráv." << endl;
 }
 
+/*
+*   Handles authentication process
+*/
 void authenticate(int socket, bool secure, SSL *ssl, string username, string password){
 
     string resp;
@@ -341,6 +380,9 @@ void authenticate(int socket, bool secure, SSL *ssl, string username, string pas
         errorHandle(AUTHERR);
 }
 
+/*
+*   Returns number of messages at the server
+*/
 int countMessages(int socket, bool secure, SSL *ssl){
     string buffer;
     int count;
@@ -368,6 +410,9 @@ int countMessages(int socket, bool secure, SSL *ssl){
     return count;
 }
 
+/*
+*   Sends QUIT command
+*/
 void endCommunication(int socket, bool secure, SSL *ssl){
     string message = "QUIT\r\n";
     
@@ -380,8 +425,12 @@ void endCommunication(int socket, bool secure, SSL *ssl){
             errorHandle(COMERR);
     }
 }
-
-// TODO: CITOVAT ZDROJ
+/*
+*   Initiating SSL context
+*   Source:
+*   http://www.cs.utah.edu/~swalton/listings/sockets/programs/part4/chap16/ssl_client.c
+*   author: Sean Walton, School of Computing, university of Utah
+*/
 SSL_CTX* InitCTX(void)
 {   SSL_METHOD *method;
     SSL_CTX *ctx;
@@ -396,6 +445,10 @@ SSL_CTX* InitCTX(void)
     return ctx;
 }
 
+/*
+*   Initiating SSL communication.
+*   Loading certificates and verifing certificates provided by server.
+*/
 void sslInitiate(SSL* ssl, SSL_CTX *ctx, bool certProvided, string certDir, string certFile)
 {   X509 *cert;
     int ret;
@@ -454,6 +507,9 @@ int main(int argc, char* argv[])
 	string host;
 	
 
+    /*
+    *   Command-line argument handling using getopt
+    */
 	if (argc < 4) errorHandle(ARGERR);
     
     int c;
@@ -491,7 +547,6 @@ int main(int argc, char* argv[])
             case 'a':
                 authFile = optarg;
                 break;
-            // TODO: V DOKUMENTACI UVEST ZE NELZE VYTVORIT VICE JAK JEDNU NOVOU SLOZKU VE STROMU
             case 'o':
                 outDir = optarg;
                 break;   
@@ -586,6 +641,9 @@ int main(int argc, char* argv[])
             errorHandle(CONNECTERR);
     }
 
+    /*
+    *   Initiating TLS
+    */
     if (stls){
         getResponse(popSocket, secure, ssl);
         string initiation = "STLS\r\n";
@@ -596,6 +654,9 @@ int main(int argc, char* argv[])
         secure = true;
     }
 
+    /*
+    *   Initializing and initiating SSL
+    */
     if (secure){
         SSL_library_init();
         ctx = InitCTX();
